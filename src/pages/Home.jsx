@@ -164,7 +164,7 @@ export default function Home() {
   useEffect(() => {
     if (!voiceMode || !recognitionSupported) return;
     if (loading || !pref?.onboarding_complete) return;
-    if (isListening || isThinking || isSpeaking || micError) return;
+    if (isListening || isThinking || isSpeaking || micError || speechError) return;
     const timer = setTimeout(() => {
       if (voiceModeRef.current && !thinkingRef.current) listenOnce();
     }, 350);
@@ -178,13 +178,15 @@ export default function Home() {
     isThinking,
     isSpeaking,
     micError,
+    speechError,
     listenOnce
   ]);
 
-  // A microphone failure ends voice mode instead of retrying into the same error.
+  // Playback and microphone errors both stop hands-free retries until the
+  // user has explicitly recovered. Avoid permission prompts looping forever.
   useEffect(() => {
-    if (micError && voiceMode) setVoiceMode(false);
-  }, [micError, voiceMode]);
+    if ((micError || speechError) && voiceMode) setVoiceMode(false);
+  }, [micError, speechError, voiceMode]);
 
   const handleMic = () => {
     if (isListening) {
@@ -208,7 +210,31 @@ export default function Home() {
       cancelSpeech();
       return;
     }
+    // Start immediately inside the user's click, rather than waiting for
+    // a React effect. Speech recognition can require transient user activation.
     setVoiceMode(true);
+    listenOnce();
+  };
+
+  // An explicit button press is the most reliable way to unlock speech audio
+  // in browsers that block playback after an asynchronous AI request.
+  const testVoice = () => {
+    speak("Greetings, my friend. Valor voice is ready.", {
+      voiceURI: pref?.voice,
+      rate: pref?.speech_rate ?? 1,
+      pitch: pref?.speech_pitch ?? 1
+    });
+  };
+
+  const lastAssistantReply = [...messages].reverse().find((m) => m.role === 'assistant')?.content;
+
+  const replayReply = () => {
+    if (!lastAssistantReply) return;
+    speak(lastAssistantReply, {
+      voiceURI: pref?.voice,
+      rate: pref?.speech_rate ?? 1,
+      pitch: pref?.speech_pitch ?? 1
+    });
   };
 
   const orbState = isListening
@@ -248,7 +274,7 @@ export default function Home() {
       )}
       {!synthesisSupported && (
         <div className="mx-4 mb-1 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          Voice output isn't supported in this browser. Responses will appear as text only.
+          Voice output isn't supported in this browser. Responses will appear as text only. Try Chrome on your Pixel Tablet or Windows device.
         </div>
       )}
       {voiceIssue && (
@@ -276,6 +302,10 @@ export default function Home() {
         isSpeaking={isSpeaking}
         isThinking={isThinking}
         recognitionSupported={recognitionSupported}
+        synthesisSupported={synthesisSupported}
+        hasReply={!!lastAssistantReply}
+        onTestVoice={testVoice}
+        onReplayReply={replayReply}
         voiceMode={voiceMode}
         audioLevel={audioLevel}
         inputText={inputText}
