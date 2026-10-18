@@ -1,0 +1,90 @@
+{
+  "name": "Voice Session Cleanup",
+  "description": "When a VoiceSession transitions to active, waits three minutes, then invokes the admin-authenticated valor-voice-cleanup function to hang up expired OpenAI realtime calls. Retries once if cleanup reports failures.",
+  "trigger": {
+    "config": {
+      "trigger_type": "entity",
+      "entity_name": "VoiceSession",
+      "events": [
+        "update"
+      ]
+    },
+    "condition": "${ .trigger.data.state == \"active\" and .trigger.old_data.state != \"active\" }"
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "voice_session_cleanup",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "hold_three_minutes": {
+          "wait": "PT3M",
+          "then": "cleanup_call",
+          "x-base44": {
+            "title": "Wait for session to expire",
+            "description": "Durable three-minute delay"
+          }
+        }
+      },
+      {
+        "cleanup_call": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "valor-voice-cleanup",
+            "args": {}
+          },
+          "then": "cleanup_check",
+          "x-base44": {
+            "title": "Run voice cleanup",
+            "description": "First attempt"
+          }
+        }
+      },
+      {
+        "cleanup_check": {
+          "switch": [
+            {
+              "when": "${ (.cleanup_call.failed // 0) > 0 }",
+              "then": "cleanup_retry_wait"
+            },
+            {
+              "when": "${ true }",
+              "then": "end"
+            }
+          ],
+          "x-base44": {
+            "title": "Failures reported?",
+            "description": "Route to one retry"
+          }
+        }
+      },
+      {
+        "cleanup_retry_wait": {
+          "wait": "PT1M",
+          "then": "cleanup_retry_call",
+          "x-base44": {
+            "title": "Wait before retry",
+            "description": "Durable one-minute delay"
+          }
+        }
+      },
+      {
+        "cleanup_retry_call": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "valor-voice-cleanup",
+            "args": {}
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Retry voice cleanup",
+            "description": "Second attempt"
+          }
+        }
+      }
+    ]
+  }
+}
