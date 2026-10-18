@@ -1,10 +1,14 @@
-import { Mic, Square, Send, Waves } from 'lucide-react';
+import { Mic, Square, Send, Waves, Volume2, RotateCcw } from 'lucide-react';
 
 export default function VoiceControls({
   isListening,
   isSpeaking,
   isThinking,
   recognitionSupported,
+  synthesisSupported,
+  hasReply,
+  onTestVoice,
+  onReplayReply,
   voiceMode,
   audioLevel,
   inputText,
@@ -105,10 +109,31 @@ export default function VoiceControls({
           </button>
         </div>
 
+        {synthesisSupported && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={onTestVoice}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-400/25 bg-cyan-400/5 px-3 py-1.5 text-xs text-cyan-200 hover:bg-cyan-400/10"
+              title="Play a short phrase to verify or enable speech audio"
+            >
+              <Volume2 size={14} /> Test voice
+            </button>
+            <button
+              type="button"
+              onClick={onReplayReply}
+              disabled={!hasReply}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Read the most recent assistant reply aloud again"
+            >
+              <RotateCcw size={14} /> Replay reply
+            </button>
+          </div>
+        )}
         <p className="mt-2 text-center text-[10px] text-slate-500">
           {voiceMode
             ? 'Voice mode is on. Talk naturally, then pause — tap Stop to end.'
-            : 'Talk to speak, or type a message.'}
+            : 'Talk to speak, or type a message. If audio is silent, tap Test voice.'}
         </p>
       </div>
     </div>
