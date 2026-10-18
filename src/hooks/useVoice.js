@@ -163,6 +163,9 @@ export function useVoice() {
   }, [synthesisSupported]);
 
   const speak = useCallback(
+    /** @param {string} text
+     * @param {{voiceURI?: string, rate?: number, pitch?: number, onDone?: () => void}} [options]
+     */
     (text, { voiceURI, rate = 1, pitch = 1, onDone } = {}) => {
       if (!synthesisSupported || !text) {
         onDone?.();
@@ -219,7 +222,7 @@ export function useVoice() {
       };
 
       utter.onstart = () => {
-        if (speechTokenRef.current !== token) return;
+        if (finished || speechTokenRef.current !== token) return;
         started = true;
         if (speechStartTimeoutRef.current) {
           clearTimeout(speechStartTimeoutRef.current);
@@ -232,6 +235,7 @@ export function useVoice() {
       // Word boundaries are the only real signal the browser gives us about the
       // audio it is actually playing, so the orb follows them.
       utter.onboundary = () => {
+        if (finished || speechTokenRef.current !== token) return;
         lastBoundaryRef.current = performance.now();
       };
       utter.onend = finish;
@@ -411,6 +415,8 @@ export function useVoice() {
   // Release the microphone, the audio graph and any speech on unmount.
   useEffect(() => {
     return () => {
+      meterTokenRef.current += 1;
+      speechTokenRef.current += 1;
       if (watchdogRef.current) clearTimeout(watchdogRef.current);
       const recognition = recognitionRef.current;
       recognitionRef.current = null;

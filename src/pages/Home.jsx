@@ -219,6 +219,7 @@ export default function Home() {
   // An explicit button press is the most reliable way to unlock speech audio
   // in browsers that block playback after an asynchronous AI request.
   const testVoice = () => {
+    stopListening();
     speak("Greetings, my friend. Valor voice is ready.", {
       voiceURI: pref?.voice,
       rate: pref?.speech_rate ?? 1,
@@ -230,6 +231,7 @@ export default function Home() {
 
   const replayReply = () => {
     if (!lastAssistantReply) return;
+    stopListening();
     speak(lastAssistantReply, {
       voiceURI: pref?.voice,
       rate: pref?.speech_rate ?? 1,
