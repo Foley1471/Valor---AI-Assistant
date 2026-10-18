@@ -44,6 +44,10 @@ export function useVoice() {
   const speechRafRef = useRef(null);
   const speechStampRef = useRef(0);
   const lastBoundaryRef = useRef(0);
+  const speechTokenRef = useRef(0);
+  const speechStartTimeoutRef = useRef(null);
+  const activeUtteranceRef = useRef(null);
+  const meterTokenRef = useRef(0);
 
   const SpeechRecognition =
     typeof window !== 'undefined'
@@ -69,6 +73,7 @@ export function useVoice() {
   /* ---------------------------------------------------------------- listening */
 
   const stopLevelMeter = useCallback(() => {
+    meterTokenRef.current += 1;
     if (levelRafRef.current) {
       cancelAnimationFrame(levelRafRef.current);
       levelRafRef.current = null;
@@ -87,14 +92,21 @@ export function useVoice() {
   }, []);
 
   const startLevelMeter = useCallback(async () => {
+    const token = ++meterTokenRef.current;
     if (!navigator.mediaDevices?.getUserMedia) {
       throw Object.assign(new Error('unsupported'), { name: 'NotSupportedError' });
     }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     });
+    // Recognition may have ended while the permission prompt was open.
+    if (token !== meterTokenRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     streamRef.current = stream;
     const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return; // Meter is optional: speech recognition still works.
     const ctx = new Ctor();
     audioCtxRef.current = ctx;
     const analyser = ctx.createAnalyser();
@@ -125,7 +137,14 @@ export function useVoice() {
   /* ------------------------------------------------------------------ speaking */
 
   const silence = useCallback(() => {
+    // Invalidate events from any canceled utterance, including delayed onend.
+    speechTokenRef.current += 1;
     speakDoneRef.current = null;
+    activeUtteranceRef.current = null;
+    if (speechStartTimeoutRef.current) {
+      clearTimeout(speechStartTimeoutRef.current);
+      speechStartTimeoutRef.current = null;
+    }
     if (keepAliveRef.current) {
       clearInterval(keepAliveRef.current);
       keepAliveRef.current = null;
@@ -150,8 +169,10 @@ export function useVoice() {
       }
       silence();
       setSpeechError(null);
+      const token = ++speechTokenRef.current;
 
-      const utter = new SpeechSynthesisUtterance(text);
+      const utter = new window.SpeechSynthesisUtterance(text);
+      activeUtteranceRef.current = utter;
       if (voiceURI) {
         const match = voices.find((v) => v.voiceURI === voiceURI || v.name === voiceURI);
         if (match) utter.voice = match;
@@ -163,8 +184,13 @@ export function useVoice() {
 
       let finished = false;
       const finish = () => {
-        if (finished) return;
+        if (finished || speechTokenRef.current !== token) return;
         finished = true;
+        activeUtteranceRef.current = null;
+        if (speechStartTimeoutRef.current) {
+          clearTimeout(speechStartTimeoutRef.current);
+          speechStartTimeoutRef.current = null;
+        }
         if (keepAliveRef.current) {
           clearInterval(keepAliveRef.current);
           keepAliveRef.current = null;
@@ -191,6 +217,11 @@ export function useVoice() {
       };
 
       utter.onstart = () => {
+        if (speechTokenRef.current !== token) return;
+        if (speechStartTimeoutRef.current) {
+          clearTimeout(speechStartTimeoutRef.current);
+          speechStartTimeoutRef.current = null;
+        }
         setIsSpeaking(true);
         lastBoundaryRef.current = performance.now();
         speechRafRef.current = requestAnimationFrame(tickLevel);
@@ -202,6 +233,7 @@ export function useVoice() {
       };
       utter.onend = finish;
       utter.onerror = (e) => {
+        if (speechTokenRef.current !== token) return;
         const code = e?.error;
         if (code && code !== 'interrupted' && code !== 'canceled') {
           setSpeechError('Voice playback failed on this device. Responses will still appear as text.');
@@ -209,13 +241,34 @@ export function useVoice() {
         finish();
       };
 
-      window.speechSynthesis.speak(utter);
-      // Chrome can leave the engine paused after a cancel, and pauses long replies,
-      // so nudge it while the reply is playing.
-      window.speechSynthesis.resume();
-      keepAliveRef.current = setInterval(() => {
-        if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
-      }, 4000);
+      try {
+        // Mark playback as pending immediately. Otherwise hands-free mode may
+        // reopen the microphone before the asynchronous onstart event arrives.
+        setIsSpeaking(true);
+        window.speechSynthesis.speak(utter);
+        window.speechSynthesis.resume();
+
+        // Some browsers silently refuse playback following an async AI request
+        // without a fresh user gesture. Give a visible recovery path.
+        speechStartTimeoutRef.current = setTimeout(() => {
+          if (speechTokenRef.current !== token || finished) return;
+          if (!window.speechSynthesis.speaking) {
+            setSpeechError(
+              'Voice playback was blocked or did not start. Tap Test voice or Replay reply to enable audio, and check your device volume.'
+            );
+            finish();
+            window.speechSynthesis.cancel();
+          }
+        }, 7000);
+        keepAliveRef.current = setInterval(() => {
+          if (speechTokenRef.current === token && window.speechSynthesis.speaking && window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+        }, 4000);
+      } catch (error) {
+        setSpeechError('Could not play audio. Try Test voice, check the volume, or choose another voice in Settings.');
+        finish();
+      }
     },
     [synthesisSupported, voices, silence]
   );
@@ -225,7 +278,8 @@ export function useVoice() {
   /* ----------------------------------------------------------------- listening */
 
   const startListening = useCallback(
-    async (onFinal) => {
+    (onFinal) => {
+      if (recognitionRef.current) return;
       if (!recognitionSupported) {
         setMicError('Voice input is not supported in this browser. You can still type your message.');
         return;
@@ -236,26 +290,9 @@ export function useVoice() {
       setInterimTranscript('');
       onFinalRef.current = onFinal;
 
-      // Ask for (and verify) microphone access first, so failures are reported
-      // clearly instead of surfacing as a silent recognition failure.
-      try {
-        await startLevelMeter();
-      } catch (err) {
-        const name = err?.name || '';
-        if (name === 'NotAllowedError' || name === 'SecurityError') {
-          setMicError(
-            'Microphone access was denied. Allow microphone permission for this site, then tap the microphone again.'
-          );
-        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-          setMicError('No microphone was found on this device. Connect one and try again.');
-        } else if (name === 'NotSupportedError') {
-          setMicError('This browser cannot access the microphone. Try Chrome on Android or Windows.');
-        } else {
-          setMicError('Could not start the microphone. Close anything else using it and try again.');
-        }
-        return;
-      }
-
+      // Begin recognition synchronously during the button press. Waiting for
+      // getUserMedia() first loses user activation on some Android browsers.
+      // The visual mic meter is optional and starts independently below.
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.interimResults = true;
@@ -328,6 +365,11 @@ export function useVoice() {
         return;
       }
       setIsListening(true);
+      // A separate meter must never prevent or delay voice transcription.
+      // If permission is denied the recognizer reports the actionable error.
+      startLevelMeter().catch(() => {
+        if (recognitionRef.current === recognition) stopLevelMeter();
+      });
       // Safety net: never leave the microphone stuck in the listening state.
       watchdogRef.current = setTimeout(() => {
         if (recognitionRef.current === recognition) {
@@ -375,6 +417,7 @@ export function useVoice() {
         } catch (_) {}
       }
       if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+      if (speechStartTimeoutRef.current) clearTimeout(speechStartTimeoutRef.current);
       if (speechRafRef.current) cancelAnimationFrame(speechRafRef.current);
       if (levelRafRef.current) cancelAnimationFrame(levelRafRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
