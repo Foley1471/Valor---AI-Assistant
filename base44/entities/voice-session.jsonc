@@ -1,0 +1,13 @@
+{
+  "name": "VoiceSession",
+  "type": "object",
+  "properties": {
+    "user_id": { "type": "string" },
+    "day": { "type": "string" },
+    "state": { "type": "string", "enum": ["starting", "active", "stopped", "failed"] },
+    "call_id": { "type": "string" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["user_id", "day", "state", "expires_at"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}
