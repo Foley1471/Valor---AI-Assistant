@@ -6,6 +6,7 @@ import { useVoice } from '@/hooks/useVoice';
 import AIOrb from '@/components/valor/AIOrb';
 import ConversationView from '@/components/valor/ConversationView';
 import VoiceControls from '@/components/valor/VoiceControls';
+import RealtimeVoicePanel from '@/components/valor/RealtimeVoicePanel';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -34,6 +35,16 @@ export default function Home() {
   const [error, setError] = useState(null);
   const [voiceMode, setVoiceMode] = useState(false);
 
+  const [experience, setExperience] = useState('realtime');
+  const experienceRef = useRef('realtime');
+  const changeExperience = (next) => {
+    experienceRef.current = next;
+    setVoiceMode(false);
+    stopListening();
+    cancelSpeech();
+    setExperience(next);
+  };
+
   const greetedRef = useRef(false);
   const voiceModeRef = useRef(false);
   const thinkingRef = useRef(false);
@@ -54,7 +65,7 @@ export default function Home() {
   // The first-time greeting, and only that. Resetting preferences in Settings
   // clears the flag so it can run again.
   useEffect(() => {
-    if (loading || !pref || !pref.onboarding_complete) return;
+    if (experience !== 'browser' || loading || !pref || !pref.onboarding_complete) return;
     if (pref.first_greeting_done || greetedRef.current) return;
     greetedRef.current = true;
     (async () => {
@@ -70,7 +81,7 @@ export default function Home() {
         if (!reply) return;
         setMessages((prev) => [...prev, { role: 'assistant', content: reply, greeting: true }]);
         await save({ first_greeting_done: true });
-        speak(reply, {
+        if (experienceRef.current === 'browser') speak(reply, {
           voiceURI: pref.voice,
           rate: pref.speech_rate ?? 1,
           pitch: pref.speech_pitch ?? 1
@@ -79,7 +90,7 @@ export default function Home() {
         // A failed greeting must never block the assistant from loading.
       }
     })();
-  }, [pref, loading, save, speak]);
+  }, [pref, loading, save, speak, experience]);
 
   const handleSend = useCallback(
     async (text) => {
@@ -132,7 +143,7 @@ export default function Home() {
         await base44.entities.Conversation.update(convId, {
           last_active: new Date().toISOString()
         });
-        speak(reply, {
+        if (experienceRef.current === 'browser') speak(reply, {
           voiceURI: pref?.voice,
           rate: pref?.speech_rate ?? 1,
           pitch: pref?.speech_pitch ?? 1
@@ -262,6 +273,11 @@ export default function Home() {
 
   return (
     <div className="flex flex-1 flex-col">
+      <div className="flex justify-center gap-2 px-4 pt-4" aria-label="Conversation mode">
+        <button type="button" aria-pressed={experience === 'realtime'} onClick={() => changeExperience('realtime')} className="rounded-lg border border-cyan-400/40 px-4 py-2 text-sm text-cyan-200">AI voice · Ellie</button>
+        <button type="button" aria-pressed={experience === 'browser'} onClick={() => changeExperience('browser')} className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200">Browser voice &amp; text</button>
+      </div>
+      {experience === 'realtime' ? <RealtimeVoicePanel assistantName={pref?.assistant_name} /> : <>
       <div className="flex flex-col items-center pt-6 pb-2">
         <AIOrb state={orbState} level={orbLevel} size={260} />
         <h1 className="mt-2 text-lg font-medium text-slate-200">
@@ -317,6 +333,7 @@ export default function Home() {
         onTextChange={setInputText}
         onSend={() => handleSend(inputText)}
       />
+      </>}
     </div>
   );
 }
