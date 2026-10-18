@@ -55,7 +55,8 @@ export function useVoice() {
       : null;
   const recognitionSupported = !!SpeechRecognition;
   const synthesisSupported =
-    typeof window !== 'undefined' && 'speechSynthesis' in window;
+    typeof window !== 'undefined' && 'speechSynthesis' in window &&
+    'SpeechSynthesisUtterance' in window;
 
   useEffect(() => {
     if (!synthesisSupported) return;
@@ -183,6 +184,7 @@ export function useVoice() {
       speakDoneRef.current = onDone || null;
 
       let finished = false;
+      let started = false;
       const finish = () => {
         if (finished || speechTokenRef.current !== token) return;
         finished = true;
@@ -218,6 +220,7 @@ export function useVoice() {
 
       utter.onstart = () => {
         if (speechTokenRef.current !== token) return;
+        started = true;
         if (speechStartTimeoutRef.current) {
           clearTimeout(speechStartTimeoutRef.current);
           speechStartTimeoutRef.current = null;
@@ -252,7 +255,7 @@ export function useVoice() {
         // without a fresh user gesture. Give a visible recovery path.
         speechStartTimeoutRef.current = setTimeout(() => {
           if (speechTokenRef.current !== token || finished) return;
-          if (!window.speechSynthesis.speaking) {
+          if (!started) {
             setSpeechError(
               'Voice playback was blocked or did not start. Tap Test voice or Replay reply to enable audio, and check your device volume.'
             );
