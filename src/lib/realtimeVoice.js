@@ -46,7 +46,10 @@ export function createRealtimeVoice({ invoke, media = navigator.mediaDevices, Pe
         if (data.type === 'response.output_audio_transcript.done') { role = 'assistant'; text = data.transcript; id = `assistant:${data.item_id}:${data.content_index}`; }
         if (role && typeof text === 'string' && text.trim() && !seen.has(id)) { seen.add(id); onTranscript({ role, content: text.trim().slice(0, 12000) }); }
       };
-      const offer = await connection.createOffer(); await connection.setLocalDescription(offer);
+      const offer = await connection.createOffer();
+      if (token !== run) return;
+      await connection.setLocalDescription(offer);
+      if (token !== run) return;
       const result = await invoke({ action: 'start', consent: true, sdp: offer.sdp });
       if (token !== run) { await invoke({ action: 'stop', sessionId: result.sessionId }).catch(() => {}); return; }
       sessionId = result.sessionId; deadline = result.expiresAt;
@@ -59,7 +62,9 @@ export function createRealtimeVoice({ invoke, media = navigator.mediaDevices, Pe
     } catch (error) {
       if (token !== run) return;
       const message = error?.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow it for this site, or use text chat.' : error?.response?.data?.error || 'Ellie could not connect. Text chat and browser voice are still available.';
-      await close(message); emit({ phase: 'error', message });
+      const closing = run + 1;
+      await close(message);
+      if (closing === run) emit({ phase: 'error', message });
     }
   }
   return { start, close };

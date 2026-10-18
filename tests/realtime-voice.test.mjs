@@ -87,3 +87,9 @@ test('actual deployment entry modules initialize with runtime dependencies',asyn
     assert.equal((await module.default(new Request('https://example.test',{method:'POST',body:'{}'}))).status,401);
   }
 });
+test('stopping during offer creation never starts a paid call',async()=>{
+  let resolveOffer;const calls=[];
+  class Peer {addTrack(){}close(){}createDataChannel(){return {close(){}};}createOffer(){return new Promise(r=>resolveOffer=r);}async setLocalDescription(){}}
+  const controller=createRealtimeVoice({invoke:async data=>calls.push(data),media:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})},Peer,timers:{setTimeout:()=>1,clearTimeout(){},setInterval:()=>2,clearInterval(){}},onState(){},onAudio(){},onTranscript(){}});
+  const starting=controller.start(true);await new Promise(r=>setImmediate(r));await controller.close();resolveOffer({sdp:'v=0'});await starting;assert.equal(calls.length,0);
+});
