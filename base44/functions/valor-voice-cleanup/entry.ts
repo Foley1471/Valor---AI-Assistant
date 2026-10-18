@@ -12,6 +12,6 @@ export default async function (req) {
     });
     return await handler(req);
   } catch (error) {
-    return Response.json({ error: error.message || 'Unexpected error' }, { status: 500 });
+    return Response.json({ error: 'Voice cleanup could not be completed.' }, { status: 500 });
   }
 }
