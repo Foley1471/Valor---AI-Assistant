@@ -10,7 +10,6 @@ export function createCleanupHandler({ clientFromRequest, secret, fetcher = fetc
       if (!user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
       if (user.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 });
       const key = secret('OPENAI_API_KEY');
-      if (!key) return Response.json({ error: 'Voice is not configured' }, { status: 503 });
       const store = client.asServiceRole.entities.VoiceSession;
       const rows = [];
       for (const state of ['active', 'starting']) {
@@ -21,13 +20,14 @@ export function createCleanupHandler({ clientFromRequest, secret, fetcher = fetc
         if (!Number.isFinite(Date.parse(row.expires_at)) || Date.parse(row.expires_at) > now()) continue;
         try {
           if (row.call_id) {
+            if (!key) { failed++; continue; }
             const r = await fetcher(`https://api.openai.com/v1/realtime/calls/${encodeURIComponent(row.call_id)}/hangup`, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10000) });
             if (!r.ok && r.status !== 404) { failed++; continue; }
           }
           await store.update(row.id, { state: 'stopped' }); stopped++;
         } catch { failed++; }
       }
-      return Response.json({ stopped, failed }, { status: failed ? 503 : 200 });
-    } catch { return Response.json({ error: 'Voice cleanup failed; retry required.' }, { status: 503 }); }
+      return Response.json({ stopped, failed });
+    } catch { return Response.json({ stopped: 0, failed: 1, error: 'Voice cleanup failed; retry required.' }); }
   };
 }

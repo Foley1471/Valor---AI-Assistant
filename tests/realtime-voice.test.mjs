@@ -73,3 +73,17 @@ test('cleanup authenticates admin and only stops expired calls',async()=>{
     if(user?.role==='admin') assert.deepEqual(updates,['expired']);
   }
 });
+
+import { readFile } from 'node:fs/promises';
+test('actual deployment entry modules initialize with runtime dependencies',async()=>{
+  for(const name of ['valor-voice','valor-voice-cleanup']){
+    const entry=new URL(`../base44/functions/${name}/entry.ts`,import.meta.url);
+    let source=await readFile(entry,'utf8');
+    source=source.replace(/import \{ createClientFromRequest \} from 'npm:@base44\/sdk@[^']+';/,"const createClientFromRequest = () => ({auth:{me:async()=>null}});");
+    source=source.replace(/import \{[^}]+\} from 'base44:runtime';/,"const secrets = {get:()=>undefined}; const waitUntil=()=>{};");
+    source=source.replace("'./service.js'",JSON.stringify(new URL('./service.js',entry).href));
+    const module=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+    assert.equal(typeof module.default,'function');
+    assert.equal((await module.default(new Request('https://example.test',{method:'POST',body:'{}'}))).status,401);
+  }
+});

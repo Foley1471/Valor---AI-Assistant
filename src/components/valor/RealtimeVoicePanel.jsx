@@ -56,7 +56,7 @@ export default function RealtimeVoicePanel({ assistantName }) {
         <p role="status" aria-live="polite" className="mt-2 max-w-lg text-sm text-cyan-200">{state.message}</p>
         {active && <p className="mt-2 text-xs tabular-nums text-slate-400">{Math.floor(state.remaining / 60)}:{String(state.remaining % 60).padStart(2, '0')} remaining · {state.phase}</p>}
         {availability && !availability.available && <p className="mt-3 max-w-lg rounded-lg border border-amber-400/30 p-3 text-xs text-amber-200">AI voice is not enabled for this account yet. Choose Browser voice &amp; text above to keep chatting.</p>}
-        <audio ref={audio} autoPlay controls aria-label="Ellie audio playback" className="mt-4 h-10 w-full max-w-sm" />
+        <audio ref={audio} hidden={!active} autoPlay controls aria-label="Ellie audio playback" className="mt-4 h-10 w-full max-w-sm" />
         <label className="mt-4 flex max-w-lg items-start gap-2 text-left text-xs leading-relaxed text-slate-400">
           <input type="checkbox" checked={consent} disabled={active} onChange={e => setConsent(e.target.checked)} className="mt-1 accent-cyan-400" />
           Use paid AI voice. Microphone audio goes to OpenAI. Sessions last up to three minutes in this interface; API costs vary with usage.
@@ -67,7 +67,7 @@ export default function RealtimeVoicePanel({ assistantName }) {
         </div>
         <p className="mb-3 max-w-lg text-[11px] leading-relaxed text-slate-500">AI-generated voice. Each voice session starts fresh. Transcripts appear here but are not saved to History. No connected action tools are enabled. Switching modes, hiding this page, or pressing Stop releases your microphone.</p>
       </div>
-      <ConversationView messages={messages} interimTranscript="" />
+      {messages.length > 0 && <ConversationView messages={messages} interimTranscript="" />}
     </section>
   );
 }
