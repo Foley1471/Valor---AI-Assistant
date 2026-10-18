@@ -26,6 +26,26 @@ and support for recognition vary by browser and device.
 
 Repeat steps 3–7 in Windows Chrome or Edge. Also test the first-time greeting on a fresh account.
 
+## Opera GX investigation and recognition recovery
+
+On macOS Opera GX 135 (Chromium 151), the published app exposes a native
+`SpeechRecognition` constructor, but the observed session produced no start,
+result, error, or end event. Microphone permission was allowed, and a typed
+message received an AI reply. Constructor availability alone therefore does
+not establish that the browser's recognition service works.
+
+The recovery patch bounds startup to 10 seconds and the complete recognition
+session to 25 seconds. Both deadlines clear listening state, abort the recognizer,
+release the meter, and show guidance without waiting for a browser end event.
+No-speech, no-match, and empty-end events also show feedback and stop hands-free
+retry loops. Events from an old session cannot reset a newer session.
+
+Run `node tests/voice-lifecycle.cjs` for mocked regression coverage. On a device,
+confirm a stalled recognizer exits with a message, Stop cancels pending timeouts,
+and successful speech still reaches the AI once. Chrome remains the working
+voice-input path reported by the user; this patch does not add a transcription
+service for Opera or establish that native recognition works there.
+
 ## What the fix changes
 
 - Starts speech recognition inside the user's tap handler (rather than awaiting an independent

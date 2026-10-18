@@ -18,6 +18,7 @@ const RECOGNITION_ERRORS = {
 };
 
 const LISTEN_WATCHDOG_MS = 25000;
+const RECOGNITION_START_MS = 10000;
 const MIC_LEVEL_GAIN = 3.2;
 const LEVEL_UPDATE_MS = 60;
 
@@ -34,6 +35,7 @@ export function useVoice() {
   const recognitionRef = useRef(null);
   const onFinalRef = useRef(null);
   const watchdogRef = useRef(null);
+  const recognitionStartRef = useRef(null);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
@@ -307,13 +309,38 @@ export function useVoice() {
       recognition.lang = navigator.language || 'en-US';
 
       const clearWatchdog = () => {
+        if (recognitionStartRef.current) {
+          clearTimeout(recognitionStartRef.current);
+          recognitionStartRef.current = null;
+        }
         if (watchdogRef.current) {
           clearTimeout(watchdogRef.current);
           watchdogRef.current = null;
         }
       };
 
+      const failRecognition = (message) => {
+        if (recognitionRef.current !== recognition) return;
+        clearWatchdog();
+        recognitionRef.current = null;
+        onFinalRef.current = null;
+        setIsListening(false);
+        setInterimTranscript('');
+        stopLevelMeter();
+        setMicError(message);
+        // Do not rely on an end event: a nonfunctional browser service may
+        // never dispatch one, even after stop() has been called.
+        try { recognition.abort(); } catch (_) {}
+      };
+
+      recognition.onstart = () => {
+        if (recognitionRef.current !== recognition) return;
+        if (recognitionStartRef.current) clearTimeout(recognitionStartRef.current);
+        recognitionStartRef.current = null;
+      };
+
       recognition.onresult = (event) => {
+        if (recognitionRef.current !== recognition) return;
         let interim = '';
         let final = '';
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -337,40 +364,44 @@ export function useVoice() {
       };
 
       recognition.onerror = (e) => {
-        clearWatchdog();
-        onFinalRef.current = null;
-        recognitionRef.current = null;
-        setIsListening(false);
-        setInterimTranscript('');
-        stopLevelMeter();
+        if (recognitionRef.current !== recognition) return;
         const code = e?.error;
-        if (code === 'aborted' || code === 'no-speech') return;
-        setMicError(
+        failRecognition(code === 'no-speech'
+          ? 'No speech was recognized. Check your microphone and try Talk again, or type your message.'
+          : code === 'aborted'
+          ? 'Speech recognition stopped before completing. Tap Talk to retry, or type your message.'
+          :
           RECOGNITION_ERRORS[code] ||
             'Speech recognition stopped unexpectedly. Tap the microphone to try again.'
         );
       };
 
+      recognition.onnomatch = () => failRecognition(
+        'Your speech could not be recognized. Try Talk again, or type your message.'
+      );
+
       recognition.onend = () => {
-        clearWatchdog();
-        setIsListening(false);
-        setInterimTranscript('');
-        if (recognitionRef.current === recognition) {
-          recognitionRef.current = null;
-          stopLevelMeter();
-        }
+        failRecognition('Speech recognition ended without a message. Try Talk again, or type your message.');
       };
 
       recognitionRef.current = recognition;
+      recognitionStartRef.current = setTimeout(() => {
+        const browserHint = /OPR\//.test(navigator.userAgent || '')
+          ? 'Opera GX exposes speech recognition here, but its service did not start. Use Chrome for voice input, or type your message.'
+          : 'Speech recognition did not start. Check microphone permission and try Talk again, or use Chrome or type your message.';
+        failRecognition(browserHint);
+      }, RECOGNITION_START_MS);
       try {
         recognition.start();
       } catch (_) {
         clearWatchdog();
         recognitionRef.current = null;
+        onFinalRef.current = null;
         stopLevelMeter();
         setMicError('Could not start listening. Wait a moment and tap the microphone again.');
         return;
       }
+      if (recognitionRef.current !== recognition) return;
       setIsListening(true);
       // A separate meter must never prevent or delay voice transcription.
       // If permission is denied the recognizer reports the actionable error.
@@ -379,17 +410,17 @@ export function useVoice() {
       });
       // Safety net: never leave the microphone stuck in the listening state.
       watchdogRef.current = setTimeout(() => {
-        if (recognitionRef.current === recognition) {
-          try {
-            recognition.stop();
-          } catch (_) {}
-        }
+        failRecognition('No completed speech transcript was received. Try Talk again, or use Chrome or type your message.');
       }, LISTEN_WATCHDOG_MS);
     },
     [recognitionSupported, SpeechRecognition, silence, startLevelMeter, stopLevelMeter]
   );
 
   const stopListening = useCallback(() => {
+    if (recognitionStartRef.current) {
+      clearTimeout(recognitionStartRef.current);
+      recognitionStartRef.current = null;
+    }
     if (watchdogRef.current) {
       clearTimeout(watchdogRef.current);
       watchdogRef.current = null;
@@ -417,6 +448,7 @@ export function useVoice() {
     return () => {
       meterTokenRef.current += 1;
       speechTokenRef.current += 1;
+      if (recognitionStartRef.current) clearTimeout(recognitionStartRef.current);
       if (watchdogRef.current) clearTimeout(watchdogRef.current);
       const recognition = recognitionRef.current;
       recognitionRef.current = null;
